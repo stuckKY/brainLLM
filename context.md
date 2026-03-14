@@ -202,6 +202,7 @@ User Question → Embed → Vector Search (k = evidence_depth)
 
 ## Deferred / Future Work
 
+- Create a way to have saved chat history
 - OCR support for scanned PDFs (`pytesseract` or Mistral document API)
 - Authentication / password protection for the UI
 - Re-ingestion workflow for when new documents are added
