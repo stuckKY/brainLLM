@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Container version="2">
+    <Name>brainLLM</Name>
+    <Repository>ghcr.io/stuckky/brainllm:latest</Repository>
+    <Registry>https://github.com/stuckKY/brainLLM/pkgs/container/brainllm</Registry>
+    <Network>bridge</Network>
+    <Privileged>false</Privileged>
+    <Support>https://github.com/stuckKY/brainLLM/issues</Support>
+    <Project>https://github.com/stuckKY/brainLLM</Project>
+    <Overview>Self-hosted RAG application for querying a personal document corpus using natural language. Ingests Markdown, PDF and PowerPoint files, embeds them with OpenAI, stores vectors in pgvector, and answers questions via Claude with adjustable inference and evidence depth sliders.</Overview>
+    <Category>Productivity: Tools:</Category>
+    <WebUI>http://[IP]:[PORT:3000]</WebUI>
+    <Icon>https://raw.githubusercontent.com/stuckKY/brainLLM/main/icon.png</Icon>
+    <Description>Self-hosted RAG application for querying a personal document corpus using natural language. Ingests Markdown, PDF and PowerPoint files, embeds them with OpenAI, stores vectors in pgvector, and answers questions via Claude with adjustable inference and evidence depth sliders.</Description>
+
+    <!-- Ports -->
+    <Config Name="Web UI Port"
+            Target="3000"
+            Default="3000"
+            Mode="tcp"
+            Type="Port"
+            Display="always"
+            Required="true"
+            Description="Port for the web interface."/>
+
+    <Config Name="API Port"
+            Target="8000"
+            Default="8000"
+            Mode="tcp"
+            Type="Port"
+            Display="always"
+            Required="true"
+            Description="Port for the FastAPI backend. The frontend calls this port from the browser, so it must be accessible on your network."/>
+
+    <!-- Paths -->
+    <Config Name="Documents"
+            Target="/app/documents"
+            Default="/mnt/user/documents/brainllm"
+            Mode="ro"
+            Type="Path"
+            Display="always"
+            Required="true"
+            Description="Path to your document folder containing Markdown, PDF and PowerPoint files to ingest."/>
+
+    <Config Name="App Data"
+            Target="/app/data"
+            Default="/mnt/user/appdata/brainllm"
+            Mode="rw"
+            Type="Path"
+            Display="always"
+            Required="true"
+            Description="Persistent storage for application data."/>
+
+    <!-- Database -->
+    <Config Name="Database Host"
+            Target="DB_HOST"
+            Type="Variable"
+            Display="always"
+            Required="true"
+            Description="Hostname or IP of your pgvector PostgreSQL instance (e.g. 192.168.1.100 or a container name)."/>
+
+    <Config Name="Database Port"
+            Target="DB_PORT"
+            Default="5432"
+            Type="Variable"
+            Display="always"
+            Required="false"
+            Description="PostgreSQL port. Defaults to 5432."/>
+
+    <Config Name="Database User"
+            Target="DB_USER"
+            Type="Variable"
+            Display="always"
+            Required="true"
+            Description="PostgreSQL username."/>
+
+    <Config Name="Database Password"
+            Target="DB_PASSWORD"
+            Type="Variable"
+            Display="always"
+            Required="true"
+            Mask="true"
+            Description="PostgreSQL password."/>
+
+    <Config Name="Database Name"
+            Target="DB_NAME"
+            Default="brainllm"
+            Type="Variable"
+            Display="always"
+            Required="false"
+            Description="PostgreSQL database name. Defaults to brainllm."/>
+
+    <!-- API Keys -->
+    <Config Name="Anthropic API Key"
+            Target="ANTHROPIC_API_KEY"
+            Type="Variable"
+            Display="always"
+            Required="true"
+            Mask="true"
+            Description="Your Anthropic API key (starts with sk-ant-). Used for the Claude LLM that answers queries."/>
+
+    <Config Name="OpenAI API Key"
+            Target="OPENAI_API_KEY"
+            Type="Variable"
+            Display="always"
+            Required="true"
+            Mask="true"
+            Description="Your OpenAI API key (starts with sk-). Used for generating document embeddings."/>
+</Container>
