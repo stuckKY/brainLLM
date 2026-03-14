@@ -1,0 +1,15 @@
+# env files
+.env
+.env.dev
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node
+frontend/node_modules/
+frontend/.next/
+
+# Docker
+pgdata/

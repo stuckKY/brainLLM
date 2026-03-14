@@ -1,0 +1,16 @@
+Oesch is very influential in this idea
+- We shouldn't be trying to abandon the relationship between three, but we can't have a stagnant idea of what class was.
+	- Takes into account Working class transformation and middle class transformation
+	- Occupations have changed, more working class people are now in the service sector rather than manual work. 
+	- Large expansion in the middle class, those who were paid a salary were small previously but now that has grown rapidly. There is a variety of tasks which fit into salaried workers.
+- Uses a two-dimensional classification
+	- Vertical dimension: Marketable skills
+		- Professional
+		- Associate professional
+		- Generally vocational
+		- Unskilled
+	- Horizontal dimension: Work logic
+		- Independent (e.g. self-employed)
+		- Technical
+		- Organisational (e.g. associate managers)
+		- Interpersonal (e.g. socio-cultural semi-professional)

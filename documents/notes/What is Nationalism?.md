@@ -1,0 +1,12 @@
+- It Is pervasive, shaping mental maps of the world and influencing out cultural habits and attitudes
+- Does not offer a clear, systematic body of doctrine that can be transplanted and reapplied wholesale from one context to another
+- Varies according to the location in which it is found
+- Theorists such as **Elie Kedourie** and **Benedict Anderson** have attempted to define and understand nationalism
+	- Kedourie: It is a doctrine that holds humanity is naturally divided into nations
+	- Anderson: The nation is an "imagined political community"
+- Some liberals have made a distinction between "good" and "bad" nationalism, with "civic" nationalism being seen as more democratic and inclusive, and "ethnic" nationalisms being seen as aggressive and exclusionary
+	- It's not always a clear-cut distinction, though. Civic and ethnic conceptions could be intertwined, argue some scholars
+	- **David Miller** has defended a "principle of nationality" that argues national identity is a part of one's identity, and nations are ethical communities that should have some right to self-determination
+- **Nationalism is facing challenges in the face of globalisation**
+	- Erosion of nation-states and growing separation of national and state
+	- Supra-national political institutions, NGOs and cultural globalisation are contributing to a shift from traditional notions of nationality **- see maybe the americanisation of british culture**

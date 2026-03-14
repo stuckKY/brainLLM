@@ -1,0 +1,18 @@
+services:
+  brainllm:
+    image: ghcr.io/stuckky/brainllm:latest
+    ports:
+      - "8000:8000"
+      - "3000:3000"
+    volumes:
+      - ${DOCUMENTS_PATH:?Set DOCUMENTS_PATH to your documents folder}:/app/documents:ro
+      - ${APPDATA_PATH:-/mnt/user/appdata/brainllm}:/app/data
+    environment:
+      - DB_HOST=${DB_HOST:?Set DB_HOST}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_USER=${DB_USER:?Set DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD:?Set DB_PASSWORD}
+      - DB_NAME=${DB_NAME:-brainllm}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:?Set OPENAI_API_KEY}
+    restart: unless-stopped

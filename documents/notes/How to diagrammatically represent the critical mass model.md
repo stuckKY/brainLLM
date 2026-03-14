@@ -1,0 +1,4 @@
+- Can use a cumulative curve, measuring the number of people for whom a particular attendance is large enough
+- Curve rises steadily to the right, indicating that the number of people preferring to attend is larger
+- The steepness of the curve is proportionate to the height of the frequency distribution
+- Curve can have an s-shape, indicating two stable equilibria, one with high attendance and one with low

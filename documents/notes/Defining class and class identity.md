@@ -1,0 +1,9 @@
+- **Robert Roberts** suggests two distinct perspectives: an internal 'frame' where fine distinctions of status between workers were important, plus an external 'frame' where social divide between manual and non-manual workers is more significant
+- **Runciman**'s *A Treatise on Social Theory* and **Ross McKibbin**'s *Classes and Cultures* emphasise the gulf between manual and non-manual
+- 'Class as culture' is a distinct concept from 'class as economic role' - but historians often conflate the two
+- The term 'working class' was not universally popular among people in manual occupations, and cultural practices are not always exclusive to specific classes
+	- Many people refuse to adopt the cultural practices and values associated with 'middle class' economic roles
+	- It can be attributed to the early c20th Labour Party's efforts to broaden the view of who belongs to the working classes
+	- Many people hold on to working classness
+	- 'Class as culture' became highly politicised and constructed
+	- Some non-manual workers identified as working class and supported Lab, while others sought to distinguish themselves from manual workers.

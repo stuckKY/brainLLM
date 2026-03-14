@@ -1,0 +1,16 @@
+- British sense of class is complex and multifaceted
+- Various models:
+	- Triadic: upper, middle, lower
+	- Dichotomous: Society divided by 'us' and 'them'
+	- Hierarchical: Society as a seamless web of social gradiations
+- David **Cannadine** argues these have been used to describe and define social differences, and frequently used simultaneously
+	- He suggests the persistence of hierarchy is a key factor in the British sense of class, and it has been sustained by the Empire and monarchy
+	- Focuses on competing models of the social world and argues that these inform both social perceptions and social behaviour
+	- But it has been criticised for not investigating the connections between social representation and social life
+- **W.G. Runciman** argues that 1915-22 witnessed a fundamental transformation in the form of 'capitalist liberal democracy' practiced in England, undermined notions of 'national hierarchy'
+	- He is more interested in 'deferent practices' - reciprocal social roles performed to smooth relations between individuals with very different levels of power and social prestige
+	- He focuses on class as social behaviour and suggests the understandings of class are about 'differences in the way English people can be seen to behave towards each other on account of lifestyle, education, inherited rank and conventionally defined prestige'.
+- **Social Geography** impacted class too
+	- Between 1918 and 1951 there was concretisation of cultural distinctions in the social space, with 'middle class' culture associated with suburban life and 'working class' culture associated with terraced city streets
+	- But many living in pre-war terraces were non-manual occupations and may have identified as 'middle class'
+	- Home ownership among manual workers increased between the wars, with about 19% of manual workers owning theirs by the late 1930s.

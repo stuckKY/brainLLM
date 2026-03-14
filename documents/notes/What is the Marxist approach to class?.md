@@ -1,0 +1,11 @@
+At the root is the relationship between an objective class structure, class consciousness, and class action.
+- Class and Historical Materialism
+	- Scientific (central) explanatory force in the progress of history, where we get repeated relationships between the three that change over time. 
+	- Structural/relational definition: relationship to means of production (unfinished). Marx's actual account is more detailed than this, but is literally unfinished - he died in the middle of writing a clear definition of class.
+		- In a capitalist society, the starting point is that there are people who own the means of production and they have capital which defines their class. Other people own only their labour power and have to sell their ability to work in exchange for wages.
+		- Marx was interested in how the political structure translates to a political consciousness. Do people begin to organise on the basis of their class position etc?
+- Thompson *Making of English Working Class* - central concern with consciousness
+	- Thompson is focused on the how class consciousness gets formed and what the forms and nuances of it is in 18th and 19th century Britain and how that transforms into forms of action.
+- Write and a revised empirical agenda for Marxist class studies (significance of exploitation)
+	- Analytical marxists have come up with a revised agenda with a focus on exploitation and the role exploitation plays in understanding modern society.
+	- A lot of modern science isn't rooted in Marxism, it is rooted in other forms of class analysis, but there is still a lively Marxist approach which is important.
