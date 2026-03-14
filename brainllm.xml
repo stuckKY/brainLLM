@@ -54,6 +54,7 @@
     <!-- Database -->
     <Config Name="Database Host"
             Target="DB_HOST"
+            Default=""
             Type="Variable"
             Display="always"
             Required="true"
@@ -69,6 +70,7 @@
 
     <Config Name="Database User"
             Target="DB_USER"
+            Default=""
             Type="Variable"
             Display="always"
             Required="true"
@@ -76,6 +78,7 @@
 
     <Config Name="Database Password"
             Target="DB_PASSWORD"
+            Default=""
             Type="Variable"
             Display="always"
             Required="true"
@@ -93,6 +96,7 @@
     <!-- API Keys -->
     <Config Name="Anthropic API Key"
             Target="ANTHROPIC_API_KEY"
+            Default=""
             Type="Variable"
             Display="always"
             Required="true"
@@ -101,6 +105,7 @@
 
     <Config Name="OpenAI API Key"
             Target="OPENAI_API_KEY"
+            Default=""
             Type="Variable"
             Display="always"
             Required="true"

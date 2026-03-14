@@ -7,8 +7,9 @@ echo "Starting brainLLM..."
 uvicorn backend.main:app --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 
-# Start Next.js frontend
-cd /app/frontend && node server.js &
+# Start Next.js frontend (HOSTNAME=0.0.0.0 ensures it binds to all interfaces,
+# overriding Docker's default HOSTNAME which is the container ID)
+cd /app/frontend && HOSTNAME=0.0.0.0 PORT=3000 node server.js &
 FRONTEND_PID=$!
 
 echo "Backend (PID $BACKEND_PID) on :8000"
