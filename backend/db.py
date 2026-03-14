@@ -25,7 +25,7 @@ engine = create_engine(_build_database_url())
 
 
 def init_db():
-    """Create pgvector extension and chunks table if they don't exist."""
+    """Create pgvector extension and all tables if they don't exist."""
     with engine.connect() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         conn.execute(text("""
@@ -35,5 +35,39 @@ def init_db():
                 source    TEXT,
                 embedding vector(1536)
             )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS files (
+                id          SERIAL PRIMARY KEY,
+                path        TEXT UNIQUE NOT NULL,
+                sha256      TEXT NOT NULL,
+                chunk_count INTEGER NOT NULL DEFAULT 0,
+                ingested_at TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS conversations (
+                id         TEXT PRIMARY KEY,
+                title      TEXT NOT NULL DEFAULT 'New conversation',
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS messages (
+                id              SERIAL PRIMARY KEY,
+                conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+                content         TEXT NOT NULL,
+                chunks_used     INTEGER DEFAULT 0,
+                sources         TEXT[] DEFAULT '{}',
+                inference_level INTEGER DEFAULT 3,
+                evidence_depth  INTEGER DEFAULT 3,
+                created_at      TIMESTAMP DEFAULT NOW()
+            )
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_messages_conversation_id
+                ON messages(conversation_id, created_at)
         """))
         conn.commit()

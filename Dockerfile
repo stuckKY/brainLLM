@@ -31,6 +31,7 @@ COPY backend/ ./backend/
 # Frontend standalone build
 COPY --from=frontend-builder /build/.next/standalone ./frontend/
 COPY --from=frontend-builder /build/.next/static ./frontend/.next/static
+COPY --from=frontend-builder /build/public ./frontend/public
 
 # Entrypoint
 COPY entrypoint.sh .

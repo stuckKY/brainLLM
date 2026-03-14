@@ -1,3 +1,5 @@
+import hashlib
+import logging
 import os
 from pathlib import Path
 
@@ -13,8 +15,11 @@ from sqlalchemy import text
 
 from backend.db import engine
 
+logger = logging.getLogger("brainllm")
+
 DOCUMENTS_DIR = Path(os.environ.get("DOCUMENTS_DIR", "documents"))
 EMBEDDING_MODEL = "text-embedding-3-small"
+SUPPORTED_EXTENSIONS = {".md", ".pdf", ".pptx"}
 
 openai_client = OpenAI()
 
@@ -24,23 +29,71 @@ splitter = RecursiveCharacterTextSplitter(
 )
 
 
-def load_documents() -> list:
-    """Walk the documents directory and load all supported file types."""
-    docs = []
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-    for md_path in DOCUMENTS_DIR.rglob("*.md"):
-        loader = UnstructuredMarkdownLoader(str(md_path))
-        docs.extend(loader.load())
 
-    for pdf_path in DOCUMENTS_DIR.rglob("*.pdf"):
-        loader = PyPDFLoader(str(pdf_path))
-        docs.extend(loader.load())
+def hash_file(path: Path) -> str:
+    """Compute SHA256 hex digest of a file."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(8192), b""):
+            h.update(block)
+    return h.hexdigest()
 
-    for pptx_path in DOCUMENTS_DIR.rglob("*.pptx"):
-        loader = UnstructuredPowerPointLoader(str(pptx_path))
-        docs.extend(loader.load())
 
-    return docs
+def scan_files() -> dict[str, Path]:
+    """Walk DOCUMENTS_DIR and return {relative_path: absolute_path} for supported files."""
+    result: dict[str, Path] = {}
+    for ext in SUPPORTED_EXTENSIONS:
+        for abs_path in DOCUMENTS_DIR.rglob(f"*{ext}"):
+            rel = str(abs_path.relative_to(DOCUMENTS_DIR))
+            result[rel] = abs_path
+    return result
+
+
+def get_tracked_files() -> dict[str, str]:
+    """Return {path: sha256} for all files in the tracking table."""
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT path, sha256 FROM files")).fetchall()
+    return {row.path: row.sha256 for row in rows}
+
+
+def load_single_file(abs_path: Path) -> list:
+    """Load a single file using the appropriate LangChain loader."""
+    ext = abs_path.suffix.lower()
+    if ext == ".md":
+        loader = UnstructuredMarkdownLoader(str(abs_path))
+    elif ext == ".pdf":
+        loader = PyPDFLoader(str(abs_path))
+    elif ext == ".pptx":
+        loader = UnstructuredPowerPointLoader(str(abs_path))
+    else:
+        return []
+    return loader.load()
+
+
+def delete_chunks_for_files(paths: list[str]):
+    """Delete chunks and file tracking rows for the given relative paths."""
+    if not paths:
+        return
+    with engine.connect() as conn:
+        for path in paths:
+            conn.execute(
+                text("DELETE FROM chunks WHERE source = :source"),
+                {"source": path},
+            )
+            conn.execute(
+                text("DELETE FROM files WHERE path = :path"),
+                {"path": path},
+            )
+        conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Chunking & embedding (unchanged)
+# ---------------------------------------------------------------------------
 
 
 def chunk_documents(docs: list) -> list:
@@ -94,20 +147,116 @@ def store_chunks(chunks: list) -> int:
     return total_stored
 
 
+# ---------------------------------------------------------------------------
+# Main pipeline
+# ---------------------------------------------------------------------------
+
+
 def run_ingestion() -> dict:
-    """Full ingestion pipeline: load → chunk → embed → store."""
-    docs = load_documents()
-    chunks = chunk_documents(docs)
+    """Incremental ingestion: only process new/modified files, remove deleted."""
 
-    # Clear existing chunks before re-ingesting
-    with engine.connect() as conn:
-        conn.execute(text("DELETE FROM chunks"))
-        conn.commit()
+    # 1. Scan filesystem
+    on_disk = scan_files()  # {rel_path: abs_path}
+    logger.info("Found %d files on disk", len(on_disk))
 
-    stored = store_chunks(chunks)
+    # 2. Compute hashes for every file on disk
+    disk_hashes: dict[str, str] = {}
+    for rel_path, abs_path in on_disk.items():
+        disk_hashes[rel_path] = hash_file(abs_path)
 
+    # 3. Get previously tracked files from DB
+    tracked = get_tracked_files()  # {rel_path: sha256}
+
+    # 4. Classify files
+    disk_paths = set(disk_hashes.keys())
+    tracked_paths = set(tracked.keys())
+
+    new_paths = disk_paths - tracked_paths
+    deleted_paths = tracked_paths - disk_paths
+    common_paths = disk_paths & tracked_paths
+
+    modified_paths = {p for p in common_paths if disk_hashes[p] != tracked[p]}
+    skipped_paths = common_paths - modified_paths
+
+    logger.info(
+        "Classification: new=%d modified=%d unchanged=%d deleted=%d",
+        len(new_paths),
+        len(modified_paths),
+        len(skipped_paths),
+        len(deleted_paths),
+    )
+
+    # 5. First-run-after-upgrade: if files table was empty but chunks table
+    #    has data from the old wipe-and-reload system, clear stale chunks
+    #    (they store absolute paths which won't match relative source keys).
+    if not tracked:
+        with engine.connect() as conn:
+            existing = conn.execute(text("SELECT COUNT(*) FROM chunks")).scalar()
+            if existing and existing > 0:
+                logger.info(
+                    "Upgrade detected — clearing %d legacy chunks", existing
+                )
+                conn.execute(text("DELETE FROM chunks"))
+                conn.commit()
+
+    # 6. Delete chunks for deleted and modified files
+    to_delete = sorted(deleted_paths | modified_paths)
+    if to_delete:
+        logger.info("Removing chunks for %d files: %s", len(to_delete), to_delete)
+        delete_chunks_for_files(to_delete)
+
+    # 7. Process new and modified files
+    to_process = sorted(new_paths | modified_paths)
+    total_chunks_stored = 0
+
+    for rel_path in to_process:
+        abs_path = on_disk[rel_path]
+        logger.info("Processing: %s", rel_path)
+
+        # Load
+        docs = load_single_file(abs_path)
+
+        # Normalise source metadata to the relative path
+        for doc in docs:
+            doc.metadata["source"] = rel_path
+
+        # Chunk
+        chunks = chunk_documents(docs)
+
+        # Embed and store
+        stored = store_chunks(chunks)
+        total_chunks_stored += stored
+
+        # Track in files table (upsert)
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "INSERT INTO files (path, sha256, chunk_count) "
+                    "VALUES (:path, :sha256, :chunk_count) "
+                    "ON CONFLICT (path) DO UPDATE SET "
+                    "sha256 = :sha256, chunk_count = :chunk_count, ingested_at = NOW()"
+                ),
+                {
+                    "path": rel_path,
+                    "sha256": disk_hashes[rel_path],
+                    "chunk_count": stored,
+                },
+            )
+            conn.commit()
+
+        logger.info("  → %d chunks stored for %s", stored, rel_path)
+
+    # 8. Return detailed summary
     return {
-        "documents_loaded": len(docs),
-        "chunks_created": len(chunks),
-        "chunks_stored": stored,
+        "files_new": len(new_paths),
+        "files_modified": len(modified_paths),
+        "files_skipped": len(skipped_paths),
+        "files_deleted": len(deleted_paths),
+        "chunks_stored": total_chunks_stored,
+        "details": {
+            "new": sorted(new_paths),
+            "modified": sorted(modified_paths),
+            "skipped": sorted(skipped_paths),
+            "deleted": sorted(deleted_paths),
+        },
     }
