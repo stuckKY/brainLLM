@@ -2,7 +2,6 @@ services:
   app:
     build: .
     ports:
-      - "8000:8000"
       - "3000:3000"
     volumes:
       - ./documents:/app/documents:ro

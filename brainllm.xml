@@ -9,28 +9,19 @@
     <Project>https://github.com/stuckKY/brainLLM</Project>
     <Overview>Self-hosted RAG application for querying a personal document corpus using natural language. Ingests Markdown, PDF and PowerPoint files, embeds them with OpenAI, stores vectors in pgvector, and answers questions via Claude with adjustable inference and evidence depth sliders.</Overview>
     <Category>Productivity: Tools:</Category>
-    <WebUI>http://[IP]:[PORT:3000]</WebUI>
+    <WebUI>http://[IP]:[PORT:3030]</WebUI>
     <Icon>https://raw.githubusercontent.com/stuckKY/brainLLM/main/icon.png</Icon>
     <Description>Self-hosted RAG application for querying a personal document corpus using natural language. Ingests Markdown, PDF and PowerPoint files, embeds them with OpenAI, stores vectors in pgvector, and answers questions via Claude with adjustable inference and evidence depth sliders.</Description>
 
     <!-- Ports -->
     <Config Name="Web UI Port"
             Target="3000"
-            Default="3000"
+            Default="3030"
             Mode="tcp"
             Type="Port"
             Display="always"
             Required="true"
             Description="Port for the web interface."/>
-
-    <Config Name="API Port"
-            Target="8000"
-            Default="8000"
-            Mode="tcp"
-            Type="Port"
-            Display="always"
-            Required="true"
-            Description="Port for the FastAPI backend. The frontend calls this port from the browser, so it must be accessible on your network."/>
 
     <!-- Paths -->
     <Config Name="Documents"

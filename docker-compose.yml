@@ -2,7 +2,6 @@ services:
   brainllm:
     image: ghcr.io/stuckky/brainllm:latest
     ports:
-      - "8000:8000"
       - "3000:3000"
     volumes:
       - ${DOCUMENTS_PATH:?Set DOCUMENTS_PATH to your documents folder}:/app/documents:ro

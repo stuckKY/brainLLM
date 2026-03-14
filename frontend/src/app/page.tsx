@@ -3,10 +3,6 @@
 import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 
-function getApiUrl() {
-  return `${window.location.protocol}//${window.location.hostname}:8000`;
-}
-
 const INFERENCE_LABELS: Record<number, string> = {
   1: "Strict",
   2: "Conservative",
@@ -62,7 +58,7 @@ export default function Home() {
     setResponse(null);
 
     try {
-      const res = await fetch(`${getApiUrl()}/ask`, {
+      const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -89,7 +85,7 @@ export default function Home() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${getApiUrl()}/ingest`, { method: "POST" });
+      const res = await fetch("/api/ingest", { method: "POST" });
       if (!res.ok) {
         const detail = await res.json().catch(() => ({}));
         throw new Error(detail.detail || `Error ${res.status}`);
