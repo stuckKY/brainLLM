@@ -65,7 +65,8 @@ def get_tracked_files() -> dict[str, str]:
 def load_single_file(abs_path: Path) -> list:
     """Load a single file using the appropriate LangChain loader.
 
-    For PDFs, falls back to OCR if the file appears to be scanned.
+    For PDFs, falls back to OCR if text extraction fails or if the
+    file appears to be scanned.
     For image files, uses OCR directly.
     """
     ext = abs_path.suffix.lower()
@@ -74,12 +75,23 @@ def load_single_file(abs_path: Path) -> list:
         loader = UnstructuredMarkdownLoader(str(abs_path))
         docs = loader.load()
     elif ext == ".pdf":
-        loader = PyPDFLoader(str(abs_path))
-        docs = loader.load()
-        # Fall back to OCR if the PDF appears to be scanned
-        if is_scanned_pdf(docs, len(docs)):
-            logger.info("Falling back to OCR for scanned PDF: %s", abs_path)
+        try:
+            loader = PyPDFLoader(str(abs_path))
+            docs = loader.load()
+        except Exception as exc:
+            # Some PDFs have malformed font maps or encodings that crash
+            # pypdf's text extraction.  Fall back to OCR instead of failing
+            # the entire ingestion run.
+            logger.warning(
+                "PyPDFLoader failed for %s (%s), falling back to OCR",
+                abs_path, exc,
+            )
             docs = ocr_pdf(str(abs_path))
+        else:
+            # Fall back to OCR if the PDF appears to be scanned
+            if is_scanned_pdf(docs, len(docs)):
+                logger.info("Falling back to OCR for scanned PDF: %s", abs_path)
+                docs = ocr_pdf(str(abs_path))
     elif ext == ".pptx":
         loader = UnstructuredPowerPointLoader(str(abs_path))
         docs = loader.load()

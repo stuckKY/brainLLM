@@ -697,7 +697,7 @@ export default function Home() {
 
       setUploadResult(summary);
       setUploadFiles([]);
-      setToast(summary + " Click 'Ingest documents' to process them.");
+      setToast(summary + " They will be auto-ingested shortly.");
       setTimeout(() => setToast(""), 8000);
 
       setTimeout(() => {
