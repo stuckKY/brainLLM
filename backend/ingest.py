@@ -5,6 +5,7 @@ from pathlib import Path
 
 from langchain_community.document_loaders import (
     PyPDFLoader,
+    UnstructuredEPubLoader,
     UnstructuredMarkdownLoader,
     UnstructuredPowerPointLoader,
 )
@@ -20,7 +21,7 @@ logger = logging.getLogger("brainllm")
 
 DOCUMENTS_DIR = Path(os.environ.get("DOCUMENTS_DIR", "documents"))
 EMBEDDING_MODEL = "text-embedding-3-small"
-SUPPORTED_EXTENSIONS = {".md", ".pdf", ".pptx"} | IMAGE_EXTENSIONS
+SUPPORTED_EXTENSIONS = {".md", ".pdf", ".pptx", ".epub"} | IMAGE_EXTENSIONS
 
 openai_client = OpenAI()
 
@@ -81,6 +82,9 @@ def load_single_file(abs_path: Path) -> list:
             docs = ocr_pdf(str(abs_path))
     elif ext == ".pptx":
         loader = UnstructuredPowerPointLoader(str(abs_path))
+        docs = loader.load()
+    elif ext == ".epub":
+        loader = UnstructuredEPubLoader(str(abs_path))
         docs = loader.load()
     elif ext in IMAGE_EXTENSIONS:
         docs = ocr_image(str(abs_path))

@@ -24,7 +24,7 @@ const EVIDENCE_LABELS: Record<number, string> = {
 };
 
 const SUPPORTED_EXTENSIONS = [
-  ".md", ".pdf", ".pptx", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp",
+  ".md", ".pdf", ".pptx", ".epub", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp",
 ];
 
 // ---------------------------------------------------------------------------
