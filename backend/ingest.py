@@ -71,7 +71,12 @@ def load_single_file(abs_path: Path) -> list:
         loader = UnstructuredPowerPointLoader(str(abs_path))
     else:
         return []
-    return loader.load()
+    docs = loader.load()
+    # Strip NUL bytes — PDFs and PPTX files often contain them
+    # and PostgreSQL TEXT columns reject them.
+    for doc in docs:
+        doc.page_content = doc.page_content.replace("\x00", "")
+    return docs
 
 
 def delete_chunks_for_files(paths: list[str]):
@@ -123,7 +128,7 @@ def store_chunks(chunks: list) -> int:
 
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i : i + batch_size]
-        texts = [chunk.page_content for chunk in batch]
+        texts = [chunk.page_content.replace("\x00", "") for chunk in batch]
         sources = [chunk.metadata.get("source", "unknown") for chunk in batch]
         embeddings = embed_texts(texts)
 
