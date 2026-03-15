@@ -9,7 +9,7 @@ langchain==0.3.13
 langchain-community==0.3.13
 markdown==3.7
 unstructured==0.16.11
-pypdf==5.1.0
+pypdf==5.2.0
 python-pptx==1.0.2
 python-dotenv==1.0.1
 pytesseract==0.3.13
