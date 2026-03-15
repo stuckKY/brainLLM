@@ -23,6 +23,10 @@ const EVIDENCE_LABELS: Record<number, string> = {
   5: "Exhaustive (25)",
 };
 
+const SUPPORTED_EXTENSIONS = [
+  ".md", ".pdf", ".pptx", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp",
+];
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -253,14 +257,24 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
+  const [streamingText, setStreamingText] = useState("");
+  const [isStreaming, setIsStreaming] = useState(false);
+
+  // Upload
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Scroll ref
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll when messages change
+  // Auto-scroll when messages change or streaming text updates
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, streamingText]);
 
   // Load conversations on mount
   const loadConversations = useCallback(async () => {
@@ -318,11 +332,13 @@ export default function Home() {
     }
   }
 
-  // Ask a question
+  // Ask a question (streaming)
   async function handleAsk() {
     if (!question.trim()) return;
     setLoading(true);
+    setIsStreaming(true);
     setError("");
+    setStreamingText("");
 
     const userContent = question;
     setQuestion("");
@@ -346,7 +362,7 @@ export default function Home() {
     }
 
     try {
-      const res = await fetch("/api/ask", {
+      const res = await fetch("/api/ask/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -362,25 +378,70 @@ export default function Home() {
         throw new Error(detail.detail || `Error ${res.status}`);
       }
 
-      const data = await res.json();
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let accumulated = "";
+      let metadata: { chunks_used: number; sources: string[] } | null = null;
+      let newConversationId: string | null = null;
 
-      // Update conversation ID if this was a new conversation
-      if (!activeConversationId) {
-        setActiveConversationId(data.conversation_id);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6);
+          if (!jsonStr.trim()) continue;
+
+          try {
+            const event = JSON.parse(jsonStr);
+            if (event.type === "delta") {
+              accumulated += event.text;
+              setStreamingText(accumulated);
+            } else if (event.type === "metadata") {
+              metadata = {
+                chunks_used: event.chunks_used,
+                sources: event.sources,
+              };
+            } else if (event.type === "conversation_id") {
+              newConversationId = event.conversation_id;
+            } else if (event.type === "error") {
+              throw new Error(event.message);
+            }
+          } catch (parseErr) {
+            if (
+              parseErr instanceof Error &&
+              parseErr.message !== "Unexpected end of JSON input"
+            ) {
+              throw parseErr;
+            }
+          }
+        }
       }
 
-      // Add assistant message
+      // Update conversation ID if this was a new conversation
+      if (newConversationId && !activeConversationId) {
+        setActiveConversationId(newConversationId);
+      }
+
+      // Add assistant message with final content
       const assistantMsg: Message = {
         id: Date.now() + 1,
         role: "assistant",
-        content: data.answer,
-        chunks_used: data.chunks_used,
-        sources: data.sources,
+        content: accumulated,
+        chunks_used: metadata?.chunks_used ?? 0,
+        sources: metadata?.sources ?? [],
         inference_level: inferenceLevel,
         evidence_depth: evidenceDepth,
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
+      setStreamingText("");
 
       // Refresh sidebar (title may have been generated)
       loadConversations();
@@ -388,8 +449,10 @@ export default function Home() {
       setError(e instanceof Error ? e.message : "Something went wrong");
       // Remove optimistic user message on error
       setMessages((prev) => prev.slice(0, -1));
+      setStreamingText("");
     } finally {
       setLoading(false);
+      setIsStreaming(false);
     }
   }
 
@@ -425,6 +488,67 @@ export default function Home() {
     }
   }
 
+  // File upload handlers
+  function handleFileSelect(selectedFiles: FileList | null) {
+    if (!selectedFiles) return;
+    const valid = Array.from(selectedFiles).filter((f) => {
+      const ext = "." + f.name.split(".").pop()?.toLowerCase();
+      return SUPPORTED_EXTENSIONS.includes(ext);
+    });
+    setUploadFiles((prev) => [...prev, ...valid]);
+  }
+
+  function removeFile(index: number) {
+    setUploadFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function handleUpload() {
+    if (uploadFiles.length === 0) return;
+    setUploading(true);
+    setUploadResult("");
+
+    try {
+      const formData = new FormData();
+      for (const file of uploadFiles) {
+        formData.append("files", file);
+      }
+
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(
+          Array.isArray(detail.detail)
+            ? detail.detail.map((e: { error: string }) => e.error).join("; ")
+            : detail.detail || `Error ${res.status}`
+        );
+      }
+
+      const data = await res.json();
+      let summary = `${data.count} file(s) uploaded successfully.`;
+      if (data.errors?.length > 0) {
+        summary += ` ${data.errors.length} file(s) failed.`;
+      }
+
+      setUploadResult(summary);
+      setUploadFiles([]);
+      setToast(summary + " Click 'Ingest documents' to process them.");
+      setTimeout(() => setToast(""), 8000);
+
+      setTimeout(() => {
+        setShowUploadModal(false);
+        setUploadResult("");
+      }, 2000);
+    } catch (e) {
+      setUploadResult(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div className="h-screen flex flex-col">
       {/* Header */}
@@ -455,6 +579,13 @@ export default function Home() {
             </span>
           </div>
           <div className="flex items-center gap-5">
+            <button
+              onClick={() => setShowUploadModal(true)}
+              disabled={loading}
+              className="text-xs tracking-wide uppercase text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 disabled:text-neutral-300 dark:disabled:text-neutral-600 transition-colors"
+            >
+              Upload files
+            </button>
             <button
               onClick={handleIngest}
               disabled={loading}
@@ -523,8 +654,27 @@ export default function Home() {
                     )
                   )}
 
-                  {/* Thinking indicator */}
-                  {loading && (
+                  {/* Streaming response */}
+                  {isStreaming && streamingText && (
+                    <div className="mb-8">
+                      <div className="border border-neutral-200 dark:border-neutral-800 p-6">
+                        <div className="flex items-center gap-3 mb-4 pb-4 border-b border-neutral-100 dark:border-neutral-800">
+                          <span className="text-xs tracking-widest uppercase text-neutral-400 dark:text-neutral-500">
+                            Response
+                          </span>
+                          <span className="text-xs text-neutral-400 dark:text-neutral-500 animate-pulse">
+                            streaming&hellip;
+                          </span>
+                        </div>
+                        <div className="prose prose-neutral dark:prose-invert max-w-none prose-headings:font-black prose-headings:uppercase prose-headings:tracking-tight prose-h2:text-lg prose-h3:text-base prose-p:leading-relaxed">
+                          <ReactMarkdown>{streamingText}</ReactMarkdown>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Thinking indicator (before first token) */}
+                  {loading && !streamingText && (
                     <div className="mb-8">
                       <div className="border border-neutral-200 dark:border-neutral-800 p-6">
                         <span className="text-xs tracking-widest uppercase text-neutral-400 dark:text-neutral-500 animate-pulse">
@@ -645,7 +795,11 @@ export default function Home() {
                     disabled={loading || !question.trim()}
                     className="px-5 py-2 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-xs tracking-wide uppercase font-semibold hover:bg-neutral-700 dark:hover:bg-neutral-300 disabled:bg-neutral-200 disabled:text-neutral-400 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-600 transition-colors"
                   >
-                    {loading ? "Thinking\u2026" : "Ask"}
+                    {loading && !streamingText
+                      ? "Thinking\u2026"
+                      : isStreaming
+                        ? "Streaming\u2026"
+                        : "Ask"}
                   </button>
                 </div>
               </div>
@@ -653,6 +807,124 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Upload modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/30 dark:bg-black/50"
+            onClick={() => {
+              setShowUploadModal(false);
+              setUploadFiles([]);
+              setUploadResult("");
+            }}
+          />
+
+          {/* Modal content */}
+          <div className="relative bg-white dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 w-full max-w-lg mx-4 p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-sm tracking-widest uppercase text-neutral-400 dark:text-neutral-500">
+                Upload Documents
+              </h2>
+              <button
+                onClick={() => {
+                  setShowUploadModal(false);
+                  setUploadFiles([]);
+                  setUploadResult("");
+                }}
+                className="text-neutral-400 hover:text-neutral-900 dark:text-neutral-600 dark:hover:text-neutral-100 text-lg"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Drop zone */}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                handleFileSelect(e.dataTransfer.files);
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              className={`border-2 border-dashed p-8 text-center cursor-pointer transition-colors ${
+                dragOver
+                  ? "border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-900"
+                  : "border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-600"
+              }`}
+            >
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                Drag and drop files here, or click to browse
+              </p>
+              <p className="text-xs text-neutral-400 dark:text-neutral-600 mt-2">
+                Supports: {SUPPORTED_EXTENSIONS.join(", ")}
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={SUPPORTED_EXTENSIONS.join(",")}
+                className="hidden"
+                onChange={(e) => {
+                  handleFileSelect(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </div>
+
+            {/* Selected files list */}
+            {uploadFiles.length > 0 && (
+              <div className="mt-4 max-h-40 overflow-y-auto">
+                {uploadFiles.map((file, i) => (
+                  <div
+                    key={`${file.name}-${i}`}
+                    className="flex items-center justify-between py-1.5 border-b border-neutral-100 dark:border-neutral-900"
+                  >
+                    <span className="text-xs text-neutral-700 dark:text-neutral-300 truncate flex-1">
+                      {file.name}
+                    </span>
+                    <span className="text-xs text-neutral-400 dark:text-neutral-600 mx-3">
+                      {(file.size / 1024).toFixed(0)} KB
+                    </span>
+                    <button
+                      onClick={() => removeFile(i)}
+                      className="text-neutral-400 hover:text-red-500 dark:text-neutral-600 dark:hover:text-red-400 text-xs"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Upload result */}
+            {uploadResult && (
+              <p className="mt-3 text-xs text-neutral-600 dark:text-neutral-400">
+                {uploadResult}
+              </p>
+            )}
+
+            {/* Actions */}
+            <div className="mt-6 flex items-center justify-between">
+              <span className="text-xs text-neutral-400 dark:text-neutral-600">
+                {uploadFiles.length} file(s) selected
+              </span>
+              <button
+                onClick={handleUpload}
+                disabled={uploading || uploadFiles.length === 0}
+                className="px-5 py-2 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-xs tracking-wide uppercase font-semibold hover:bg-neutral-700 dark:hover:bg-neutral-300 disabled:bg-neutral-200 disabled:text-neutral-400 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-600 transition-colors"
+              >
+                {uploading ? "Uploading\u2026" : "Upload"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

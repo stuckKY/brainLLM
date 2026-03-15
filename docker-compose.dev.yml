@@ -4,7 +4,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./documents:/app/documents:ro
+      - ./documents:/app/documents
     env_file:
       - .env.dev
     depends_on:
