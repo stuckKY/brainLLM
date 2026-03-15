@@ -31,12 +31,21 @@ const SUPPORTED_EXTENSIONS = [
 // Types
 // ---------------------------------------------------------------------------
 
+interface ChunkReference {
+  index: number;
+  id: number;
+  source: string;
+  content: string;
+  similarity: number;
+}
+
 interface Message {
   id: number;
   role: "user" | "assistant";
   content: string;
   chunks_used: number;
   sources: string[];
+  chunks_data: ChunkReference[];
   inference_level: number;
   evidence_depth: number;
   created_at: string;
@@ -83,15 +92,120 @@ function UserMessage({ content }: { content: string }) {
   );
 }
 
+function CitationButton({
+  num,
+  source,
+  onClick,
+}: {
+  num: number;
+  source: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className="inline-flex items-center justify-center min-w-[1.25rem] h-5 text-[10px] font-bold bg-neutral-200 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-300 rounded-full hover:bg-neutral-300 dark:hover:bg-neutral-600 cursor-pointer transition-colors mx-0.5 px-1 align-super"
+      title={source}
+    >
+      {num}
+    </button>
+  );
+}
+
+// Regex to match citation patterns like [1], [2] etc.
+// Negative lookahead avoids matching markdown link refs like [1]: or [1](
+const CITATION_REGEX = /\[(\d{1,2})\](?![:(])/g;
+
+function processChildren(
+  children: React.ReactNode,
+  chunks: ChunkReference[],
+  toggle: (n: number) => void,
+): React.ReactNode {
+  if (typeof children === "string") {
+    const parts = children.split(CITATION_REGEX);
+    if (parts.length === 1) return children;
+
+    // split produces: [text, match1, text, match2, text, ...]
+    const result: React.ReactNode[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      if (i % 2 === 0) {
+        // Plain text segment
+        if (parts[i]) result.push(parts[i]);
+      } else {
+        // Captured group — citation number
+        const refNum = parseInt(parts[i]);
+        const chunk = chunks.find((c) => c.index === refNum);
+        if (chunk) {
+          result.push(
+            <CitationButton
+              key={`cite-${i}`}
+              num={refNum}
+              source={chunk.source}
+              onClick={() => toggle(refNum)}
+            />,
+          );
+        } else {
+          result.push(`[${parts[i]}]`);
+        }
+      }
+    }
+    return <>{result}</>;
+  }
+
+  if (Array.isArray(children)) {
+    return children.map((child, i) => (
+      <span key={i}>{processChildren(child, chunks, toggle)}</span>
+    ));
+  }
+
+  return children;
+}
+
 function AssistantMessage({
   content,
   chunksUsed,
   sources,
+  chunks,
 }: {
   content: string;
   chunksUsed: number;
   sources: string[];
+  chunks: ChunkReference[];
 }) {
+  const [expandedCitations, setExpandedCitations] = useState<Set<number>>(
+    new Set(),
+  );
+
+  function toggleCitation(n: number) {
+    setExpandedCitations((prev) => {
+      const next = new Set(prev);
+      if (next.has(n)) next.delete(n);
+      else next.add(n);
+      return next;
+    });
+  }
+
+  // Custom components that process citation references in text
+  const citationComponents = chunks.length > 0
+    ? {
+        p: ({ children }: { children?: React.ReactNode }) => (
+          <p>{processChildren(children, chunks, toggleCitation)}</p>
+        ),
+        li: ({ children }: { children?: React.ReactNode }) => (
+          <li>{processChildren(children, chunks, toggleCitation)}</li>
+        ),
+        td: ({ children }: { children?: React.ReactNode }) => (
+          <td>{processChildren(children, chunks, toggleCitation)}</td>
+        ),
+        blockquote: ({ children }: { children?: React.ReactNode }) => (
+          <blockquote>{processChildren(children, chunks, toggleCitation)}</blockquote>
+        ),
+      }
+    : undefined;
+
   return (
     <div className="mb-8">
       <div className="border border-neutral-200 dark:border-neutral-800 p-6">
@@ -106,8 +220,49 @@ function AssistantMessage({
           )}
         </div>
         <div className="prose prose-neutral dark:prose-invert max-w-none prose-headings:font-black prose-headings:uppercase prose-headings:tracking-tight prose-h2:text-lg prose-h3:text-base prose-p:leading-relaxed">
-          <ReactMarkdown>{content}</ReactMarkdown>
+          <ReactMarkdown components={citationComponents}>
+            {content}
+          </ReactMarkdown>
         </div>
+
+        {/* Expanded citation panels */}
+        {expandedCitations.size > 0 && (
+          <div className="mt-4 space-y-2">
+            {Array.from(expandedCitations)
+              .sort((a, b) => a - b)
+              .map((n) => {
+                const chunk = chunks.find((c) => c.index === n);
+                if (!chunk) return null;
+                return (
+                  <div
+                    key={n}
+                    className="border border-neutral-200 dark:border-neutral-700 p-3 text-xs bg-neutral-50 dark:bg-neutral-900"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-semibold text-neutral-700 dark:text-neutral-300">
+                        [{n}] {chunk.source}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-neutral-400 dark:text-neutral-500">
+                          {(chunk.similarity * 100).toFixed(0)}% match
+                        </span>
+                        <button
+                          onClick={() => toggleCitation(n)}
+                          className="text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300"
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-neutral-600 dark:text-neutral-400 whitespace-pre-wrap leading-relaxed">
+                      {chunk.content}
+                    </p>
+                  </div>
+                );
+              })}
+          </div>
+        )}
+
         {sources.length > 0 && (
           <div className="mt-6 pt-4 border-t border-neutral-100 dark:border-neutral-800">
             <span className="text-xs tracking-widest uppercase text-neutral-400 dark:text-neutral-500">
@@ -350,6 +505,7 @@ export default function Home() {
       content: userContent,
       chunks_used: 0,
       sources: [],
+      chunks_data: [],
       inference_level: inferenceLevel,
       evidence_depth: evidenceDepth,
       created_at: new Date().toISOString(),
@@ -382,7 +538,11 @@ export default function Home() {
       const decoder = new TextDecoder();
       let buffer = "";
       let accumulated = "";
-      let metadata: { chunks_used: number; sources: string[] } | null = null;
+      let metadata: {
+        chunks_used: number;
+        sources: string[];
+        chunks: ChunkReference[];
+      } | null = null;
       let newConversationId: string | null = null;
 
       while (true) {
@@ -407,6 +567,7 @@ export default function Home() {
               metadata = {
                 chunks_used: event.chunks_used,
                 sources: event.sources,
+                chunks: event.chunks || [],
               };
             } else if (event.type === "conversation_id") {
               newConversationId = event.conversation_id;
@@ -436,6 +597,7 @@ export default function Home() {
         content: accumulated,
         chunks_used: metadata?.chunks_used ?? 0,
         sources: metadata?.sources ?? [],
+        chunks_data: metadata?.chunks ?? [],
         inference_level: inferenceLevel,
         evidence_depth: evidenceDepth,
         created_at: new Date().toISOString(),
@@ -582,8 +744,22 @@ export default function Home() {
             <button
               onClick={() => setShowUploadModal(true)}
               disabled={loading}
-              className="text-xs tracking-wide uppercase text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 disabled:text-neutral-300 dark:disabled:text-neutral-600 transition-colors"
+              className="flex items-center gap-1.5 text-xs tracking-wide uppercase text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100 disabled:text-neutral-300 dark:disabled:text-neutral-600 transition-colors"
             >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
               Upload files
             </button>
             <button
@@ -650,6 +826,7 @@ export default function Home() {
                         content={msg.content}
                         chunksUsed={msg.chunks_used}
                         sources={msg.sources}
+                        chunks={msg.chunks_data || []}
                       />
                     )
                   )}

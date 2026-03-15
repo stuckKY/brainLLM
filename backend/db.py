@@ -70,4 +70,9 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_messages_conversation_id
                 ON messages(conversation_id, created_at)
         """))
+        # Migration: add chunks_data column if missing (for source citations)
+        conn.execute(text("""
+            ALTER TABLE messages
+                ADD COLUMN IF NOT EXISTS chunks_data JSONB DEFAULT '[]'::jsonb
+        """))
         conn.commit()
