@@ -4,7 +4,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ${DOCUMENTS_PATH:?Set DOCUMENTS_PATH to your documents folder}:/app/documents:ro
+      - ${DOCUMENTS_PATH:?Set DOCUMENTS_PATH to your documents folder}:/app/documents
       - ${APPDATA_PATH:-/mnt/user/appdata/brainllm}:/app/data
     environment:
       - DB_HOST=${DB_HOST:?Set DB_HOST}

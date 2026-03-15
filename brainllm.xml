@@ -27,7 +27,7 @@
     <Config Name="Documents"
             Target="/app/documents"
             Default="/mnt/user/documents/brainllm"
-            Mode="ro"
+            Mode="rw"
             Type="Path"
             Display="always"
             Required="true"
