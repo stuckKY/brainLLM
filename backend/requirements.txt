@@ -18,3 +18,4 @@ Pillow==11.1.0
 python-multipart==0.0.20
 ebooklib==0.18
 watchdog==6.0.0
+fpdf2==2.8.3
