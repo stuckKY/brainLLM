@@ -169,15 +169,25 @@ function AssistantMessage({
   chunksUsed,
   sources,
   chunks,
+  messageId,
+  conversationId,
+  createdAt,
+  conversationTitle,
 }: {
   content: string;
   chunksUsed: number;
   sources: string[];
   chunks: ChunkReference[];
+  messageId: number;
+  conversationId: string | null;
+  createdAt: string;
+  conversationTitle: string;
 }) {
   const [expandedCitations, setExpandedCitations] = useState<Set<number>>(
     new Set(),
   );
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
   function toggleCitation(n: number) {
     setExpandedCitations((prev) => {
@@ -186,6 +196,69 @@ function AssistantMessage({
       else next.add(n);
       return next;
     });
+  }
+
+  // Close export menu when clicking outside
+  useEffect(() => {
+    if (!showExportMenu) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showExportMenu]);
+
+  function exportMarkdown() {
+    setShowExportMenu(false);
+    const timestamp = new Date(createdAt).toLocaleString();
+    let md = `# ${conversationTitle}\n\n`;
+    md += `*Exported ${timestamp}*\n\n---\n\n`;
+    md += content;
+    if (sources.length > 0) {
+      md += `\n\n---\n\n**Sources:**\n`;
+      for (const s of sources) {
+        md += `- ${s}\n`;
+      }
+    }
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const safeTitle = conversationTitle
+      .replace(/[^\w\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .toLowerCase()
+      .slice(0, 50);
+    a.href = url;
+    a.download = `${safeTitle || "response"}-${new Date(createdAt).toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async function exportPdf() {
+    setShowExportMenu(false);
+    if (!conversationId) return;
+    try {
+      const res = await fetch(`/api/export/${conversationId}/${messageId}`);
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const disposition = res.headers.get("Content-Disposition");
+      const filenameMatch = disposition?.match(/filename="?([^"]+)"?/);
+      a.href = url;
+      a.download = filenameMatch?.[1] || `export-${Date.now()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("PDF export failed:", err);
+    }
   }
 
   // Custom components that process citation references in text
@@ -218,6 +291,46 @@ function AssistantMessage({
               &middot; {chunksUsed} chunks
             </span>
           )}
+          {/* Export button */}
+          <div className="relative ml-auto" ref={exportMenuRef}>
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="flex items-center gap-1.5 text-xs tracking-wide uppercase text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors"
+              aria-label="Export response"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              Export
+            </button>
+            {showExportMenu && (
+              <div className="absolute right-0 top-full mt-1 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 shadow-sm z-10 min-w-[140px]">
+                <button
+                  onClick={exportMarkdown}
+                  className="w-full text-left px-3 py-2 text-xs text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+                >
+                  Markdown (.md)
+                </button>
+                <button
+                  onClick={exportPdf}
+                  className="w-full text-left px-3 py-2 text-xs text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+                >
+                  PDF (.pdf)
+                </button>
+              </div>
+            )}
+          </div>
         </div>
         <div className="prose prose-neutral dark:prose-invert max-w-none prose-headings:font-black prose-headings:uppercase prose-headings:tracking-tight prose-h2:text-lg prose-h3:text-base prose-p:leading-relaxed">
           <ReactMarkdown components={citationComponents}>
@@ -401,6 +514,7 @@ export default function Home() {
   // Current conversation
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [conversationTitle, setConversationTitle] = useState("New conversation");
 
   // Input
   const [question, setQuestion] = useState("");
@@ -459,6 +573,7 @@ export default function Home() {
       if (res.ok) {
         const data = await res.json();
         setMessages(data.messages);
+        setConversationTitle(data.title || "New conversation");
       }
     } catch {
       setError("Failed to load conversation");
@@ -472,6 +587,7 @@ export default function Home() {
     setQuestion("");
     setError("");
     setSidebarOpen(false);
+    setConversationTitle("New conversation");
   }
 
   // Delete a conversation
@@ -544,6 +660,7 @@ export default function Home() {
         chunks: ChunkReference[];
       } | null = null;
       let newConversationId: string | null = null;
+      let newMessageId: number | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -571,6 +688,8 @@ export default function Home() {
               };
             } else if (event.type === "conversation_id") {
               newConversationId = event.conversation_id;
+            } else if (event.type === "message_id") {
+              newMessageId = event.message_id;
             } else if (event.type === "error") {
               throw new Error(event.message);
             }
@@ -592,7 +711,7 @@ export default function Home() {
 
       // Add assistant message with final content
       const assistantMsg: Message = {
-        id: Date.now() + 1,
+        id: newMessageId ?? Date.now() + 1,
         role: "assistant",
         content: accumulated,
         chunks_used: metadata?.chunks_used ?? 0,
@@ -605,8 +724,19 @@ export default function Home() {
       setMessages((prev) => [...prev, assistantMsg]);
       setStreamingText("");
 
-      // Refresh sidebar (title may have been generated)
+      // Refresh sidebar and title (title may have been generated)
       loadConversations();
+      if (newConversationId) {
+        try {
+          const convRes = await fetch(`/api/conversations/${newConversationId}`);
+          if (convRes.ok) {
+            const convData = await convRes.json();
+            setConversationTitle(convData.title || "New conversation");
+          }
+        } catch {
+          // Title will stay as default
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
       // Remove optimistic user message on error
@@ -827,6 +957,10 @@ export default function Home() {
                         chunksUsed={msg.chunks_used}
                         sources={msg.sources}
                         chunks={msg.chunks_data || []}
+                        messageId={msg.id}
+                        conversationId={activeConversationId}
+                        createdAt={msg.created_at}
+                        conversationTitle={conversationTitle}
                       />
                     )
                   )}

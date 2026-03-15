@@ -9,7 +9,9 @@ from typing import Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+import markdown as md_lib
+from fastapi.responses import Response, StreamingResponse
+from fpdf import FPDF
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
@@ -306,6 +308,125 @@ def rename_conversation(conversation_id: str, req: RenameRequest):
 
 
 # ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
+
+
+@app.get("/conversations/{conversation_id}/messages/{message_id}/export")
+def export_message(conversation_id: str, message_id: int, format: str = "pdf"):
+    """Export a single assistant message as a PDF document."""
+    if format not in ("pdf",):
+        raise HTTPException(status_code=400, detail="Unsupported format. Use: pdf")
+
+    # Fetch the conversation title
+    with engine.connect() as conn:
+        conv = conn.execute(
+            text("SELECT id, title FROM conversations WHERE id = :id"),
+            {"id": conversation_id},
+        ).fetchone()
+
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        # Fetch the specific message
+        msg = conn.execute(
+            text(
+                "SELECT id, role, content, sources, chunks_data, created_at "
+                "FROM messages WHERE id = :mid AND conversation_id = :cid"
+            ),
+            {"mid": message_id, "cid": conversation_id},
+        ).fetchone()
+
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    if msg.role != "assistant":
+        raise HTTPException(status_code=400, detail="Only assistant messages can be exported")
+
+    # Fetch the preceding user question for context
+    with engine.connect() as conn:
+        user_msg = conn.execute(
+            text(
+                "SELECT content FROM messages "
+                "WHERE conversation_id = :cid AND role = 'user' AND created_at <= :ts "
+                "ORDER BY created_at DESC LIMIT 1"
+            ),
+            {"cid": conversation_id, "ts": msg.created_at},
+        ).fetchone()
+
+    question_text = user_msg.content if user_msg else ""
+    sources = list(msg.sources) if msg.sources else []
+    created = msg.created_at.strftime("%Y-%m-%d %H:%M")
+
+    # Build the PDF
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=20)
+
+    # Title
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.cell(0, 12, conv.title, new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
+
+    # Metadata
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(120, 120, 120)
+    pdf.cell(0, 6, f"Exported {created}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    # Question
+    if question_text:
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(0, 8, "Question", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 10)
+        pdf.multi_cell(0, 6, question_text)
+        pdf.ln(6)
+
+    # Divider
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
+    pdf.ln(6)
+
+    # Response body — strip citation markers, convert markdown to HTML
+    pdf.set_text_color(0, 0, 0)
+    clean_content = re.sub(r"\[(\d{1,2})\](?![:(])", "", msg.content)
+    html_content = md_lib.markdown(clean_content, extensions=["tables", "fenced_code"])
+    pdf.write_html(html_content)
+    pdf.ln(8)
+
+    # Sources
+    if sources:
+        pdf.set_draw_color(200, 200, 200)
+        pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
+        pdf.ln(4)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(0, 8, "Sources", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 9)
+        pdf.set_text_color(80, 80, 80)
+        for source in sources:
+            pdf.cell(0, 5, f"  - {source}", new_x="LMARGIN", new_y="NEXT")
+
+    # Generate output
+    pdf_bytes = bytes(pdf.output())
+
+    safe_title = (
+        re.sub(r"[^\w\s-]", "", conv.title)[:50]
+        .strip()
+        .replace(" ", "-")
+        .lower()
+    )
+    filename = f"{safe_title}-{msg.created_at.strftime('%Y%m%d')}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Ask (with conversation history)
 # ---------------------------------------------------------------------------
 
@@ -542,13 +663,14 @@ def ask_question_stream(req: AskRequest):
                         "ed": req.evidence_depth,
                     },
                 )
-                conn.execute(
+                assistant_row = conn.execute(
                     text(
                         "INSERT INTO messages "
                         "(conversation_id, role, content, chunks_used, sources, "
                         "chunks_data, inference_level, evidence_depth) "
                         "VALUES (:cid, 'assistant', :content, :chunks_used, :sources, "
-                        ":chunks_data, :il, :ed)"
+                        ":chunks_data, :il, :ed) "
+                        "RETURNING id"
                     ),
                     {
                         "cid": conversation_id,
@@ -559,7 +681,8 @@ def ask_question_stream(req: AskRequest):
                         "il": req.inference_level,
                         "ed": req.evidence_depth,
                     },
-                )
+                ).fetchone()
+                assistant_msg_id = assistant_row.id if assistant_row else None
                 conn.execute(
                     text("UPDATE conversations SET updated_at = NOW() WHERE id = :id"),
                     {"id": conversation_id},
@@ -580,8 +703,10 @@ def ask_question_stream(req: AskRequest):
                 except Exception:
                     logger.warning("Title generation failed, keeping default")
 
-            # Send conversation_id so the frontend can track it
+            # Send conversation_id and message_id so the frontend can track them
             yield f"data: {json.dumps({'type': 'conversation_id', 'conversation_id': conversation_id})}\n\n"
+            if assistant_msg_id is not None:
+                yield f"data: {json.dumps({'type': 'message_id', 'message_id': assistant_msg_id})}\n\n"
 
         except Exception as e:
             logger.error("Stream error:\n%s", traceback.format_exc())
