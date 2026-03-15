@@ -16,6 +16,7 @@ from sqlalchemy import text
 from backend.db import engine, init_db
 from backend.ingest import DOCUMENTS_DIR, SUPPORTED_EXTENSIONS, run_ingestion
 from backend.query import ask, ask_stream, generate_title
+from backend.watcher import start_watcher, stop_watcher
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("brainllm")
@@ -26,7 +27,9 @@ async def lifespan(app: FastAPI):
     logger.info("Initialising database...")
     init_db()
     logger.info("Database ready.")
+    start_watcher()
     yield
+    stop_watcher()
 
 
 app = FastAPI(title="brainLLM", lifespan=lifespan)
