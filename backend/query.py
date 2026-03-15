@@ -1,4 +1,6 @@
+import json
 import os
+from collections.abc import Generator
 
 import anthropic
 from openai import OpenAI
@@ -148,3 +150,59 @@ def ask(
         "chunks_used": len(chunks),
         "sources": list({c["source"] for c in chunks}),
     }
+
+
+def ask_stream(
+    question: str,
+    inference_level: int,
+    evidence_depth: int,
+    history: list[dict] | None = None,
+) -> Generator[str, None, None]:
+    """Streaming version of ask(). Yields SSE-formatted lines.
+
+    Supports multi-turn history just like ask().
+    """
+    k = EVIDENCE_K[evidence_depth - 1]
+    system_prompt = SYSTEM_PROMPTS[inference_level]
+
+    embedding = embed_query(question)
+    chunks = search_chunks(embedding, k)
+
+    if not chunks:
+        yield f"data: {json.dumps({'type': 'delta', 'text': 'No documents have been ingested yet. Run /ingest first.'})}\n\n"
+        yield f"data: {json.dumps({'type': 'metadata', 'chunks_used': 0, 'sources': []})}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        return
+
+    context = "\n\n---\n\n".join(
+        f"[Source: {c['source']}]\n{c['content']}" for c in chunks
+    )
+
+    # Build multi-turn messages array
+    messages: list[dict] = []
+
+    if history:
+        for msg in history:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+
+    # Current turn: RAG context prepended only to the latest question
+    messages.append({
+        "role": "user",
+        "content": (
+            f"Here are the relevant notes for this question:\n\n{context}\n\n"
+            f"---\n\nQuestion: {question}"
+        ),
+    })
+
+    with anthropic_client.messages.stream(
+        model=CLAUDE_MODEL,
+        max_tokens=2048,
+        system=system_prompt,
+        messages=messages,
+    ) as stream:
+        for text_chunk in stream.text_stream:
+            yield f"data: {json.dumps({'type': 'delta', 'text': text_chunk})}\n\n"
+
+    sources = list({c["source"] for c in chunks})
+    yield f"data: {json.dumps({'type': 'metadata', 'chunks_used': len(chunks), 'sources': sources})}\n\n"
+    yield f"data: {json.dumps({'type': 'done'})}\n\n"

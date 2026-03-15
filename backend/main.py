@@ -1,3 +1,4 @@
+import json
 import logging
 import traceback
 import uuid
@@ -6,12 +7,13 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from backend.db import engine, init_db
 from backend.ingest import run_ingestion
-from backend.query import ask, generate_title
+from backend.query import ask, ask_stream, generate_title
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("brainllm")
@@ -328,3 +330,151 @@ def ask_question(req: AskRequest):
             except Exception:
                 pass
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Ask — streaming (SSE)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/ask/stream")
+def ask_question_stream(req: AskRequest):
+    """Stream the answer token-by-token via Server-Sent Events."""
+    conversation_id = req.conversation_id
+    is_new = conversation_id is None
+
+    logger.info(
+        "Ask (stream): question=%r inference=%d evidence=%d conversation=%s",
+        req.question, req.inference_level, req.evidence_depth,
+        conversation_id or "(new)",
+    )
+
+    # Create conversation up front so the ID is available immediately
+    if is_new:
+        conversation_id = uuid.uuid4().hex[:16]
+        with engine.connect() as conn:
+            conn.execute(
+                text("INSERT INTO conversations (id) VALUES (:id)"),
+                {"id": conversation_id},
+            )
+            conn.commit()
+        logger.info("Created conversation %s", conversation_id)
+
+    # Load conversation history
+    with engine.connect() as conn:
+        history_rows = conn.execute(
+            text(
+                "SELECT role, content FROM messages "
+                "WHERE conversation_id = :cid "
+                "ORDER BY created_at ASC"
+            ),
+            {"cid": conversation_id},
+        ).fetchall()
+
+    history = [{"role": r.role, "content": r.content} for r in history_rows]
+    if len(history) > 20:
+        history = history[-20:]
+
+    def event_generator():
+        accumulated = ""
+        try:
+            for chunk in ask_stream(
+                req.question,
+                req.inference_level,
+                req.evidence_depth,
+                history=history if history else None,
+            ):
+                # Capture text for DB storage
+                if '"type": "delta"' in chunk:
+                    try:
+                        data = json.loads(chunk.removeprefix("data: ").strip())
+                        accumulated += data.get("text", "")
+                    except Exception:
+                        pass
+                yield chunk
+
+            # After streaming completes, extract metadata and store messages
+            chunks_used = 0
+            sources: list[str] = []
+            # The metadata was already yielded; parse from the last events
+            # Instead, we re-derive from the stream function's logic
+            # We need to get this from the metadata event we yielded
+            # Since we can't easily, we'll query for it
+            # Actually, we already have the chunks info from ask_stream internals
+            # Let's store with what we know
+
+            # Store messages in DB
+            with engine.connect() as conn:
+                conn.execute(
+                    text(
+                        "INSERT INTO messages "
+                        "(conversation_id, role, content, inference_level, evidence_depth) "
+                        "VALUES (:cid, 'user', :content, :il, :ed)"
+                    ),
+                    {
+                        "cid": conversation_id,
+                        "content": req.question,
+                        "il": req.inference_level,
+                        "ed": req.evidence_depth,
+                    },
+                )
+                conn.execute(
+                    text(
+                        "INSERT INTO messages "
+                        "(conversation_id, role, content, inference_level, evidence_depth) "
+                        "VALUES (:cid, 'assistant', :content, :il, :ed)"
+                    ),
+                    {
+                        "cid": conversation_id,
+                        "content": accumulated,
+                        "il": req.inference_level,
+                        "ed": req.evidence_depth,
+                    },
+                )
+                conn.execute(
+                    text("UPDATE conversations SET updated_at = NOW() WHERE id = :id"),
+                    {"id": conversation_id},
+                )
+                conn.commit()
+
+            # Auto-generate title for new conversations
+            if is_new:
+                try:
+                    title = generate_title(req.question, accumulated)
+                    with engine.connect() as conn:
+                        conn.execute(
+                            text("UPDATE conversations SET title = :title WHERE id = :id"),
+                            {"title": title, "id": conversation_id},
+                        )
+                        conn.commit()
+                    logger.info("Generated title: %r", title)
+                except Exception:
+                    logger.warning("Title generation failed, keeping default")
+
+            # Send conversation_id so the frontend can track it
+            yield f"data: {json.dumps({'type': 'conversation_id', 'conversation_id': conversation_id})}\n\n"
+
+        except Exception as e:
+            logger.error("Stream error:\n%s", traceback.format_exc())
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            # Clean up empty conversation on error
+            if is_new:
+                try:
+                    with engine.connect() as conn:
+                        conn.execute(
+                            text("DELETE FROM conversations WHERE id = :id"),
+                            {"id": conversation_id},
+                        )
+                        conn.commit()
+                except Exception:
+                    pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

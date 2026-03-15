@@ -253,14 +253,16 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
+  const [streamingText, setStreamingText] = useState("");
+  const [isStreaming, setIsStreaming] = useState(false);
 
   // Scroll ref
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll when messages change
+  // Auto-scroll when messages change or streaming text updates
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, streamingText]);
 
   // Load conversations on mount
   const loadConversations = useCallback(async () => {
@@ -318,11 +320,13 @@ export default function Home() {
     }
   }
 
-  // Ask a question
+  // Ask a question (streaming)
   async function handleAsk() {
     if (!question.trim()) return;
     setLoading(true);
+    setIsStreaming(true);
     setError("");
+    setStreamingText("");
 
     const userContent = question;
     setQuestion("");
@@ -346,7 +350,7 @@ export default function Home() {
     }
 
     try {
-      const res = await fetch("/api/ask", {
+      const res = await fetch("/api/ask/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -362,25 +366,70 @@ export default function Home() {
         throw new Error(detail.detail || `Error ${res.status}`);
       }
 
-      const data = await res.json();
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let accumulated = "";
+      let metadata: { chunks_used: number; sources: string[] } | null = null;
+      let newConversationId: string | null = null;
 
-      // Update conversation ID if this was a new conversation
-      if (!activeConversationId) {
-        setActiveConversationId(data.conversation_id);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6);
+          if (!jsonStr.trim()) continue;
+
+          try {
+            const event = JSON.parse(jsonStr);
+            if (event.type === "delta") {
+              accumulated += event.text;
+              setStreamingText(accumulated);
+            } else if (event.type === "metadata") {
+              metadata = {
+                chunks_used: event.chunks_used,
+                sources: event.sources,
+              };
+            } else if (event.type === "conversation_id") {
+              newConversationId = event.conversation_id;
+            } else if (event.type === "error") {
+              throw new Error(event.message);
+            }
+          } catch (parseErr) {
+            if (
+              parseErr instanceof Error &&
+              parseErr.message !== "Unexpected end of JSON input"
+            ) {
+              throw parseErr;
+            }
+          }
+        }
       }
 
-      // Add assistant message
+      // Update conversation ID if this was a new conversation
+      if (newConversationId && !activeConversationId) {
+        setActiveConversationId(newConversationId);
+      }
+
+      // Add assistant message with final content
       const assistantMsg: Message = {
         id: Date.now() + 1,
         role: "assistant",
-        content: data.answer,
-        chunks_used: data.chunks_used,
-        sources: data.sources,
+        content: accumulated,
+        chunks_used: metadata?.chunks_used ?? 0,
+        sources: metadata?.sources ?? [],
         inference_level: inferenceLevel,
         evidence_depth: evidenceDepth,
         created_at: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
+      setStreamingText("");
 
       // Refresh sidebar (title may have been generated)
       loadConversations();
@@ -388,8 +437,10 @@ export default function Home() {
       setError(e instanceof Error ? e.message : "Something went wrong");
       // Remove optimistic user message on error
       setMessages((prev) => prev.slice(0, -1));
+      setStreamingText("");
     } finally {
       setLoading(false);
+      setIsStreaming(false);
     }
   }
 
@@ -523,8 +574,27 @@ export default function Home() {
                     )
                   )}
 
-                  {/* Thinking indicator */}
-                  {loading && (
+                  {/* Streaming response */}
+                  {isStreaming && streamingText && (
+                    <div className="mb-8">
+                      <div className="border border-neutral-200 dark:border-neutral-800 p-6">
+                        <div className="flex items-center gap-3 mb-4 pb-4 border-b border-neutral-100 dark:border-neutral-800">
+                          <span className="text-xs tracking-widest uppercase text-neutral-400 dark:text-neutral-500">
+                            Response
+                          </span>
+                          <span className="text-xs text-neutral-400 dark:text-neutral-500 animate-pulse">
+                            streaming&hellip;
+                          </span>
+                        </div>
+                        <div className="prose prose-neutral dark:prose-invert max-w-none prose-headings:font-black prose-headings:uppercase prose-headings:tracking-tight prose-h2:text-lg prose-h3:text-base prose-p:leading-relaxed">
+                          <ReactMarkdown>{streamingText}</ReactMarkdown>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Thinking indicator (before first token) */}
+                  {loading && !streamingText && (
                     <div className="mb-8">
                       <div className="border border-neutral-200 dark:border-neutral-800 p-6">
                         <span className="text-xs tracking-widest uppercase text-neutral-400 dark:text-neutral-500 animate-pulse">
@@ -645,7 +715,11 @@ export default function Home() {
                     disabled={loading || !question.trim()}
                     className="px-5 py-2 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-xs tracking-wide uppercase font-semibold hover:bg-neutral-700 dark:hover:bg-neutral-300 disabled:bg-neutral-200 disabled:text-neutral-400 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-600 transition-colors"
                   >
-                    {loading ? "Thinking\u2026" : "Ask"}
+                    {loading && !streamingText
+                      ? "Thinking\u2026"
+                      : isStreaming
+                        ? "Streaming\u2026"
+                        : "Ask"}
                   </button>
                 </div>
               </div>

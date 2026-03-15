@@ -14,12 +14,13 @@ from pgvector.sqlalchemy import Vector  # noqa: F401
 from sqlalchemy import text
 
 from backend.db import engine
+from backend.ocr import IMAGE_EXTENSIONS, is_scanned_pdf, ocr_pdf, ocr_image
 
 logger = logging.getLogger("brainllm")
 
 DOCUMENTS_DIR = Path(os.environ.get("DOCUMENTS_DIR", "documents"))
 EMBEDDING_MODEL = "text-embedding-3-small"
-SUPPORTED_EXTENSIONS = {".md", ".pdf", ".pptx"}
+SUPPORTED_EXTENSIONS = {".md", ".pdf", ".pptx"} | IMAGE_EXTENSIONS
 
 openai_client = OpenAI()
 
@@ -61,17 +62,31 @@ def get_tracked_files() -> dict[str, str]:
 
 
 def load_single_file(abs_path: Path) -> list:
-    """Load a single file using the appropriate LangChain loader."""
+    """Load a single file using the appropriate LangChain loader.
+
+    For PDFs, falls back to OCR if the file appears to be scanned.
+    For image files, uses OCR directly.
+    """
     ext = abs_path.suffix.lower()
+
     if ext == ".md":
         loader = UnstructuredMarkdownLoader(str(abs_path))
+        docs = loader.load()
     elif ext == ".pdf":
         loader = PyPDFLoader(str(abs_path))
+        docs = loader.load()
+        # Fall back to OCR if the PDF appears to be scanned
+        if is_scanned_pdf(docs, len(docs)):
+            logger.info("Falling back to OCR for scanned PDF: %s", abs_path)
+            docs = ocr_pdf(str(abs_path))
     elif ext == ".pptx":
         loader = UnstructuredPowerPointLoader(str(abs_path))
+        docs = loader.load()
+    elif ext in IMAGE_EXTENSIONS:
+        docs = ocr_image(str(abs_path))
     else:
         return []
-    docs = loader.load()
+
     # Strip NUL bytes — PDFs and PPTX files often contain them
     # and PostgreSQL TEXT columns reject them.
     for doc in docs:
