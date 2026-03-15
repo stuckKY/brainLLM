@@ -13,30 +13,42 @@ CLAUDE_MODEL = "claude-sonnet-4-20250514"
 
 EVIDENCE_K = [3, 6, 10, 15, 25]
 
+_CITATION_INSTRUCTION = (
+    " When answering, cite your sources using bracketed numbers like [1], [2], etc. "
+    "that correspond to the numbered source chunks provided. Place citations inline "
+    "immediately after the claim they support. You may cite multiple sources for a "
+    "single claim, e.g. [1][3]. Do not list sources at the end."
+)
+
 SYSTEM_PROMPTS = {
     1: (
         "You are a knowledge assistant. Answer strictly from the provided notes only. "
         "If the answer is not in the notes, say so. Do not speculate."
+        + _CITATION_INSTRUCTION
     ),
     2: (
         "You are a knowledge assistant. Answer strictly from the provided notes only. "
         "If the answer is not in the notes, say so. Do not speculate."
+        + _CITATION_INSTRUCTION
     ),
     3: (
         "You are a knowledge assistant. Answer primarily from the provided notes. "
         "You may make tactical inferences where the evidence strongly suggests something, "
         "but flag any uncertainty clearly."
+        + _CITATION_INSTRUCTION
     ),
     4: (
         "You are a knowledge assistant. Answer from the provided notes. "
         "You may make reasonable inferences and connect ideas across chunks, "
         "but flag uncertainty clearly."
+        + _CITATION_INSTRUCTION
     ),
     5: (
         "You are a knowledge assistant. Use the provided notes as a foundation, "
         "but feel free to extrapolate novel angles, draw broader connections, "
         "and explore speculative interpretations. Use speculative language when going "
         "beyond what the notes directly state."
+        + _CITATION_INSTRUCTION
     ),
 }
 
@@ -116,10 +128,12 @@ def ask(
             "answer": "No documents have been ingested yet. Run /ingest first.",
             "chunks_used": 0,
             "sources": [],
+            "chunks": [],
         }
 
     context = "\n\n---\n\n".join(
-        f"[Source: {c['source']}]\n{c['content']}" for c in chunks
+        f"[{i + 1}] (Source: {c['source']})\n{c['content']}"
+        for i, c in enumerate(chunks)
     )
 
     # Build multi-turn messages array
@@ -149,6 +163,16 @@ def ask(
         "answer": message.content[0].text,
         "chunks_used": len(chunks),
         "sources": list({c["source"] for c in chunks}),
+        "chunks": [
+            {
+                "index": i + 1,
+                "id": c["id"],
+                "source": c["source"],
+                "content": c["content"],
+                "similarity": float(c["similarity"]),
+            }
+            for i, c in enumerate(chunks)
+        ],
     }
 
 
@@ -170,12 +194,13 @@ def ask_stream(
 
     if not chunks:
         yield f"data: {json.dumps({'type': 'delta', 'text': 'No documents have been ingested yet. Run /ingest first.'})}\n\n"
-        yield f"data: {json.dumps({'type': 'metadata', 'chunks_used': 0, 'sources': []})}\n\n"
+        yield f"data: {json.dumps({'type': 'metadata', 'chunks_used': 0, 'sources': [], 'chunks': []})}\n\n"
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
         return
 
     context = "\n\n---\n\n".join(
-        f"[Source: {c['source']}]\n{c['content']}" for c in chunks
+        f"[{i + 1}] (Source: {c['source']})\n{c['content']}"
+        for i, c in enumerate(chunks)
     )
 
     # Build multi-turn messages array
@@ -204,5 +229,15 @@ def ask_stream(
             yield f"data: {json.dumps({'type': 'delta', 'text': text_chunk})}\n\n"
 
     sources = list({c["source"] for c in chunks})
-    yield f"data: {json.dumps({'type': 'metadata', 'chunks_used': len(chunks), 'sources': sources})}\n\n"
+    chunks_data = [
+        {
+            "index": i + 1,
+            "id": c["id"],
+            "source": c["source"],
+            "content": c["content"],
+            "similarity": float(c["similarity"]),
+        }
+        for i, c in enumerate(chunks)
+    ]
+    yield f"data: {json.dumps({'type': 'metadata', 'chunks_used': len(chunks), 'sources': sources, 'chunks': chunks_data})}\n\n"
     yield f"data: {json.dumps({'type': 'done'})}\n\n"

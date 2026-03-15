@@ -238,7 +238,7 @@ def get_conversation(conversation_id: str):
 
         rows = conn.execute(
             text(
-                "SELECT id, role, content, chunks_used, sources, "
+                "SELECT id, role, content, chunks_used, sources, chunks_data, "
                 "inference_level, evidence_depth, created_at "
                 "FROM messages WHERE conversation_id = :cid "
                 "ORDER BY created_at ASC"
@@ -256,6 +256,7 @@ def get_conversation(conversation_id: str):
                 "content": row.content,
                 "chunks_used": row.chunks_used,
                 "sources": list(row.sources) if row.sources else [],
+                "chunks_data": row.chunks_data if row.chunks_data else [],
                 "inference_level": row.inference_level,
                 "evidence_depth": row.evidence_depth,
                 "created_at": row.created_at.isoformat(),
@@ -376,14 +377,16 @@ def ask_question(req: AskRequest):
                 text(
                     "INSERT INTO messages "
                     "(conversation_id, role, content, chunks_used, sources, "
-                    "inference_level, evidence_depth) "
-                    "VALUES (:cid, 'assistant', :content, :chunks, :sources, :il, :ed)"
+                    "chunks_data, inference_level, evidence_depth) "
+                    "VALUES (:cid, 'assistant', :content, :chunks, :sources, "
+                    ":chunks_data, :il, :ed)"
                 ),
                 {
                     "cid": conversation_id,
                     "content": result["answer"],
                     "chunks": result["chunks_used"],
                     "sources": result["sources"],
+                    "chunks_data": json.dumps(result["chunks"]),
                     "il": req.inference_level,
                     "ed": req.evidence_depth,
                 },
@@ -426,6 +429,7 @@ def ask_question(req: AskRequest):
             "answer": result["answer"],
             "chunks_used": result["chunks_used"],
             "sources": result["sources"],
+            "chunks": result["chunks"],
             "title": title,
         }
 
@@ -492,6 +496,9 @@ def ask_question_stream(req: AskRequest):
 
     def event_generator():
         accumulated = ""
+        chunks_used = 0
+        sources: list[str] = []
+        chunks_data: list = []
         try:
             for chunk in ask_stream(
                 req.question,
@@ -506,17 +513,16 @@ def ask_question_stream(req: AskRequest):
                         accumulated += data.get("text", "")
                     except Exception:
                         pass
+                # Capture metadata for DB storage
+                elif '"type": "metadata"' in chunk:
+                    try:
+                        data = json.loads(chunk.removeprefix("data: ").strip())
+                        chunks_used = data.get("chunks_used", 0)
+                        sources = data.get("sources", [])
+                        chunks_data = data.get("chunks", [])
+                    except Exception:
+                        pass
                 yield chunk
-
-            # After streaming completes, extract metadata and store messages
-            chunks_used = 0
-            sources: list[str] = []
-            # The metadata was already yielded; parse from the last events
-            # Instead, we re-derive from the stream function's logic
-            # We need to get this from the metadata event we yielded
-            # Since we can't easily, we'll query for it
-            # Actually, we already have the chunks info from ask_stream internals
-            # Let's store with what we know
 
             # Store messages in DB
             with engine.connect() as conn:
@@ -536,12 +542,17 @@ def ask_question_stream(req: AskRequest):
                 conn.execute(
                     text(
                         "INSERT INTO messages "
-                        "(conversation_id, role, content, inference_level, evidence_depth) "
-                        "VALUES (:cid, 'assistant', :content, :il, :ed)"
+                        "(conversation_id, role, content, chunks_used, sources, "
+                        "chunks_data, inference_level, evidence_depth) "
+                        "VALUES (:cid, 'assistant', :content, :chunks_used, :sources, "
+                        ":chunks_data, :il, :ed)"
                     ),
                     {
                         "cid": conversation_id,
                         "content": accumulated,
+                        "chunks_used": chunks_used,
+                        "sources": sources,
+                        "chunks_data": json.dumps(chunks_data),
                         "il": req.inference_level,
                         "ed": req.evidence_depth,
                     },
