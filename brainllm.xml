@@ -21,7 +21,7 @@
             Type="Port"
             Display="always"
             Required="true"
-            Description="Port for the web interface."/>
+            Description="Port for the web interface.">3030</Config>
 
     <!-- Paths -->
     <Config Name="Documents"
@@ -31,7 +31,7 @@
             Type="Path"
             Display="always"
             Required="true"
-            Description="Path to your document folder containing Markdown, PDF and PowerPoint files to ingest."/>
+            Description="Path to your document folder containing Markdown, PDF and PowerPoint files to ingest.">/mnt/user/documents/brainllm</Config>
 
     <Config Name="App Data"
             Target="/app/data"
@@ -40,7 +40,7 @@
             Type="Path"
             Display="always"
             Required="true"
-            Description="Persistent storage for application data."/>
+            Description="Persistent storage for application data.">/mnt/user/appdata/brainllm</Config>
 
     <!-- Database -->
     <Config Name="Database Host"
@@ -49,7 +49,7 @@
             Type="Variable"
             Display="always"
             Required="true"
-            Description="Hostname or IP of your pgvector PostgreSQL instance (e.g. 192.168.1.100 or a container name)."/>
+            Description="Hostname or IP of your pgvector PostgreSQL instance (e.g. 192.168.1.100 or a container name)."></Config>
 
     <Config Name="Database Port"
             Target="DB_PORT"
@@ -57,7 +57,7 @@
             Type="Variable"
             Display="always"
             Required="false"
-            Description="PostgreSQL port. Defaults to 5432."/>
+            Description="PostgreSQL port. Defaults to 5432.">5432</Config>
 
     <Config Name="Database User"
             Target="DB_USER"
@@ -65,7 +65,7 @@
             Type="Variable"
             Display="always"
             Required="true"
-            Description="PostgreSQL username."/>
+            Description="PostgreSQL username."></Config>
 
     <Config Name="Database Password"
             Target="DB_PASSWORD"
@@ -74,7 +74,7 @@
             Display="always"
             Required="true"
             Mask="true"
-            Description="PostgreSQL password."/>
+            Description="PostgreSQL password."></Config>
 
     <Config Name="Database Name"
             Target="DB_NAME"
@@ -82,7 +82,7 @@
             Type="Variable"
             Display="always"
             Required="false"
-            Description="PostgreSQL database name. Defaults to brainllm."/>
+            Description="PostgreSQL database name. Defaults to brainllm.">brainllm</Config>
 
     <!-- API Keys -->
     <Config Name="Anthropic API Key"
@@ -92,7 +92,7 @@
             Display="always"
             Required="true"
             Mask="true"
-            Description="Your Anthropic API key (starts with sk-ant-). Used for the Claude LLM that answers queries."/>
+            Description="Your Anthropic API key (starts with sk-ant-). Used for the Claude LLM that answers queries."></Config>
 
     <Config Name="OpenAI API Key"
             Target="OPENAI_API_KEY"
@@ -101,5 +101,5 @@
             Display="always"
             Required="true"
             Mask="true"
-            Description="Your OpenAI API key (starts with sk-). Used for generating document embeddings."/>
+            Description="Your OpenAI API key (starts with sk-). Used for generating document embeddings."></Config>
 </Container>
